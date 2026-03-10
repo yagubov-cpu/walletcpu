@@ -11,6 +11,74 @@
 </head>
 <body data-theme="dark">
 
+  <!-- ══════════════════ AUTH SCREEN ══════════════════════════ -->
+  <div id="auth-screen" class="auth-screen">
+    <div class="auth-card">
+
+      <!-- Logo -->
+      <div class="auth-logo">
+        <div class="auth-brand-mark">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+            <rect x="1" y="1" width="9" height="9" rx="2.5" fill="currentColor" opacity=".95"/>
+            <rect x="12" y="1" width="9" height="9" rx="2.5" fill="currentColor" opacity=".55"/>
+            <rect x="1" y="12" width="9" height="9" rx="2.5" fill="currentColor" opacity=".55"/>
+            <rect x="12" y="12" width="9" height="9" rx="2.5" fill="currentColor" opacity=".25"/>
+          </svg>
+        </div>
+        <span class="auth-brand-name">Wallet</span>
+      </div>
+
+      <p class="auth-tagline">Your personal finance dashboard</p>
+
+      <!-- Tabs -->
+      <div class="auth-tabs">
+        <button class="auth-tab auth-tab--active" id="auth-tab-login" type="button">Sign in</button>
+        <button class="auth-tab" id="auth-tab-signup" type="button">Create account</button>
+      </div>
+
+      <!-- Login panel -->
+      <div class="auth-panel auth-panel--active" id="auth-panel-login">
+        <form id="auth-login-form" class="auth-form" autocomplete="on">
+          <div class="auth-field">
+            <label for="login-email">Email</label>
+            <input id="login-email" type="email" placeholder="you@example.com" autocomplete="email" required />
+          </div>
+          <div class="auth-field">
+            <label for="login-password">Password</label>
+            <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password" required />
+          </div>
+          <p class="auth-error" id="auth-login-error"></p>
+          <button type="submit" class="auth-submit-btn">Sign in</button>
+        </form>
+      </div>
+
+      <!-- Signup panel -->
+      <div class="auth-panel" id="auth-panel-signup">
+        <form id="auth-signup-form" class="auth-form" autocomplete="off">
+          <div class="auth-field">
+            <label for="signup-email">Email</label>
+            <input id="signup-email" type="email" placeholder="you@example.com" autocomplete="email" required />
+          </div>
+          <div class="auth-field">
+            <label for="signup-password">Password</label>
+            <input id="signup-password" type="password" placeholder="Min. 6 characters" autocomplete="new-password" required />
+          </div>
+          <div class="auth-field">
+            <label for="signup-confirm">Confirm password</label>
+            <input id="signup-confirm" type="password" placeholder="Repeat password" autocomplete="new-password" required />
+          </div>
+          <p class="auth-error"   id="auth-signup-error"></p>
+          <p class="auth-success" id="auth-signup-success"></p>
+          <button type="submit" class="auth-submit-btn">Create account</button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══════════════════ APP SHELL ════════════════════════════ -->
+  <div id="app-shell" hidden>
+
   <!-- ═══════════════════════ SIDEBAR NAV ═══════════════════════ -->
   <nav class="sidebar">
     <div class="sidebar-brand">
@@ -57,7 +125,13 @@
         <span class="icon-moon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span>
         <span class="icon-sun"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg></span>
       </button>
-      <div class="user-avatar" title="Local user">JD</div>
+      <div class="user-info">
+        <div class="user-avatar" id="user-avatar" title="Signed in user">?</div>
+        <span class="user-email" id="user-email"></span>
+      </div>
+      <button id="logout-btn" class="logout-btn" type="button" title="Sign out">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
     </div>
   </nav>
 
@@ -437,6 +511,8 @@
     <p class="qm-hint">Go to Records to add a new transaction to your account.</p>
     <button class="primary-btn btn-full" id="modal-goto-records" type="button">Open Records →</button>
   </div>
+
+</div><!-- /app-shell -->
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script type="module" src="main.js"></script>

@@ -13,20 +13,68 @@ import {
   listTransactions,
   listWallets,
   loadAllTransactions,
+  setCurrentUser,
   setTheme,
   updateWallet,
 } from "./services.js";
 
+import {
+  getSession,
+  signIn,
+  signUp,
+  signOut,
+  onAuthStateChange,
+} from "./supabase.js";
+
 import { downloadFile, formatCurrency, toCSV, todayISO } from "./utils.js";
 import { initCharts, updateCharts } from "./charts.js";
 
+// ══════════════════════════════════════════════════════════════
+//  AUTH GATE — runs first, before any dashboard code
+// ══════════════════════════════════════════════════════════════
+
 export async function initApp() {
+  // 1. Check if there is already an active Supabase session
+  const { session } = await getSession();
+
+  if (session) {
+    // Already logged in — boot straight into dashboard
+    await bootDashboard(session.user);
+  } else {
+    // Not logged in — show the auth screen
+    showAuthScreen();
+  }
+
+  // 2. Listen for future sign-in / sign-out events
+  //    (handles sign-in from the auth form AND session expiry)
+  onAuthStateChange(async (event, newSession) => {
+    if (event === "SIGNED_IN" && newSession) {
+      hideAuthScreen();
+      await bootDashboard(newSession.user);
+    } else if (event === "SIGNED_OUT") {
+      teardownDashboard();
+      showAuthScreen();
+    }
+  });
+}
+
+// ── Boot the full dashboard for an authenticated user ─────────
+async function bootDashboard(user) {
+  // Tell services which user is active so all DB calls are scoped
+  setCurrentUser(user.id);
+
+  // Update the avatar / email display in the sidebar
+  updateUserDisplay(user);
+
+  // Show the app shell, hide the auth screen
+  document.getElementById("app-shell")?.removeAttribute("hidden");
+
   const els = queryElements();
   applyInitialTheme(els);
   wireThemeToggle(els);
   wireExport(els);
+  wireLogout(els);
 
-  // Show loading state while fetching from Supabase
   showLoadingState(els);
 
   const { error } = await loadAllTransactions();
@@ -52,12 +100,150 @@ export async function initApp() {
   renderAnalytics(els, analytics);
   initCharts(analytics);
 
-  // Inject edit modal + toast into DOM
   injectEditModal();
   injectToast();
   injectDeleteConfirmModal();
   wireEditModal(els);
   wireDeleteConfirmModal(els);
+}
+
+// ── Teardown when user logs out ───────────────────────────────
+function teardownDashboard() {
+  setCurrentUser(null);
+  // Hide the app shell so the auth screen can show cleanly
+  document.getElementById("app-shell")?.setAttribute("hidden", "");
+}
+
+// ── Update the sidebar avatar / email chip ────────────────────
+function updateUserDisplay(user) {
+  const avatarEl  = document.getElementById("user-avatar");
+  const emailEl   = document.getElementById("user-email");
+  if (!user) return;
+
+  const email = user.email || "";
+  const initials = email.slice(0, 2).toUpperCase();
+
+  if (avatarEl) avatarEl.textContent = initials;
+  if (emailEl)  emailEl.textContent  = email;
+}
+
+// ── Wire the Logout button in the sidebar ────────────────────
+function wireLogout() {
+  const btn = document.getElementById("logout-btn");
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    btn.disabled    = true;
+    btn.textContent = "Signing out…";
+    await signOut();
+    // onAuthStateChange will handle the SIGNED_OUT event and call teardownDashboard
+  });
+}
+
+// ── Auth screen: show / hide ──────────────────────────────────
+function showAuthScreen() {
+  const screen = document.getElementById("auth-screen");
+  if (screen) screen.removeAttribute("hidden");
+  wireAuthForms();
+}
+
+function hideAuthScreen() {
+  const screen = document.getElementById("auth-screen");
+  if (screen) screen.setAttribute("hidden", "");
+}
+
+// ── Wire login / signup forms ─────────────────────────────────
+let _authFormsWired = false;
+function wireAuthForms() {
+  if (_authFormsWired) return;
+  _authFormsWired = true;
+
+  // Tab switching
+  const tabLogin  = document.getElementById("auth-tab-login");
+  const tabSignup = document.getElementById("auth-tab-signup");
+  const panelLogin  = document.getElementById("auth-panel-login");
+  const panelSignup = document.getElementById("auth-panel-signup");
+
+  function switchTab(tab) {
+    const isLogin = tab === "login";
+    tabLogin?.classList.toggle("auth-tab--active",   isLogin);
+    tabSignup?.classList.toggle("auth-tab--active",  !isLogin);
+    panelLogin?.classList.toggle("auth-panel--active",   isLogin);
+    panelSignup?.classList.toggle("auth-panel--active", !isLogin);
+  }
+
+  tabLogin?.addEventListener("click",  () => switchTab("login"));
+  tabSignup?.addEventListener("click", () => switchTab("signup"));
+
+  // ── Login form ────────────────────────────────────────────
+  const loginForm  = document.getElementById("auth-login-form");
+  const loginError = document.getElementById("auth-login-error");
+
+  loginForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email    = loginForm.querySelector("#login-email").value.trim();
+    const password = loginForm.querySelector("#login-password").value;
+    const btn      = loginForm.querySelector("button[type='submit']");
+
+    loginError.textContent = "";
+    btn.disabled    = true;
+    btn.textContent = "Signing in…";
+
+    const { error } = await signIn(email, password);
+
+    btn.disabled    = false;
+    btn.textContent = "Sign in";
+
+    if (error) {
+      loginError.textContent = error.message || "Invalid credentials. Please try again.";
+    }
+    // On success onAuthStateChange fires → bootDashboard
+  });
+
+  // ── Signup form ───────────────────────────────────────────
+  const signupForm    = document.getElementById("auth-signup-form");
+  const signupError   = document.getElementById("auth-signup-error");
+  const signupSuccess = document.getElementById("auth-signup-success");
+
+  signupForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email    = signupForm.querySelector("#signup-email").value.trim();
+    const password = signupForm.querySelector("#signup-password").value;
+    const confirm  = signupForm.querySelector("#signup-confirm").value;
+    const btn      = signupForm.querySelector("button[type='submit']");
+
+    signupError.textContent   = "";
+    signupSuccess.textContent = "";
+
+    if (password !== confirm) {
+      signupError.textContent = "Passwords do not match.";
+      return;
+    }
+    if (password.length < 6) {
+      signupError.textContent = "Password must be at least 6 characters.";
+      return;
+    }
+
+    btn.disabled    = true;
+    btn.textContent = "Creating account…";
+
+    const { user, error } = await signUp(email, password);
+
+    btn.disabled    = false;
+    btn.textContent = "Create account";
+
+    if (error) {
+      signupError.textContent = error.message || "Sign-up failed. Please try again.";
+    } else {
+      // Supabase may require email confirmation depending on project settings.
+      // If auto-confirm is ON the user is signed in immediately via onAuthStateChange.
+      // If email confirmation is required, show a friendly message.
+      if (user && !user.confirmed_at) {
+        signupSuccess.textContent = "Account created! Check your email to confirm, then sign in.";
+      }
+      signupForm.reset();
+    }
+  });
 }
 
 function queryElements() {

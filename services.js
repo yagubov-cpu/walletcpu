@@ -1,7 +1,7 @@
 // services.js — Supabase-backed data layer
-// Replaces the localStorage implementation with real DB calls.
 // All exported function signatures remain IDENTICAL so components.js
-// needs zero changes.
+// needs minimal changes. Auth-awareness is threaded through via
+// a module-level _currentUserId that is set before any data call.
 
 import {
   getTransactions   as sbGetTransactions,
@@ -17,6 +17,18 @@ import {
   parseNumber,
   todayISO,
 } from "./utils.js";
+
+// ── Active user ───────────────────────────────────────────────
+// Set by components.js after auth resolves, before initApp() runs.
+let _currentUserId = null;
+
+export function setCurrentUser(userId) {
+  _currentUserId = userId;
+}
+
+export function getCurrentUserId() {
+  return _currentUserId;
+}
 
 // ── Theme (still local — no DB column for it) ─────────────────
 const PREF_KEY = "wallet-dashboard-prefs-v1";
@@ -45,40 +57,44 @@ export function setTheme(theme) {
 }
 
 // ── In-memory transaction cache ───────────────────────────────
-// Supabase calls are async; we keep a local cache so all the
-// synchronous helpers (listTransactions, computeAnalytics…)
-// that components.js already calls can still work without awaiting.
-let _txCache = [];   // array of transaction objects from Supabase
+let _txCache = [];
 
-// Wallets remain local-only (no wallets table in Supabase).
-const WALLET_KEY = "wallet-dashboard-wallets-v1";
+// ── Wallets — stored in per-user localStorage key ─────────────
+function walletKey() {
+  // Namespace wallets per user so two users on the same browser
+  // don't share wallet definitions.
+  return _currentUserId
+    ? `wallet-dashboard-wallets-${_currentUserId}`
+    : "wallet-dashboard-wallets-v1";
+}
 
 function loadWallets() {
   try {
-    const raw = localStorage.getItem(WALLET_KEY);
-    return Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : [];
+    const raw = localStorage.getItem(walletKey());
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch { return []; }
 }
 
 function saveWallets(wallets) {
-  try { localStorage.setItem(WALLET_KEY, JSON.stringify(wallets)); } catch {}
+  try { localStorage.setItem(walletKey(), JSON.stringify(wallets)); } catch {}
 }
 
-let _wallets = loadWallets();
+let _wallets = [];
 
 // ── Bootstrap: load all transactions from Supabase ────────────
-/**
- * Must be called once at app startup (in initApp) before anything
- * else touches transactions. Returns { error } on failure.
- */
 export async function loadAllTransactions() {
-  const { data, error } = await sbGetTransactions();
+  if (!_currentUserId) return { error: { message: "No authenticated user." } };
+
+  // Re-load wallets for the current user on every bootstrap
+  // (handles first load after sign-in and page refresh)
+  _wallets = loadWallets();
+
+  const { data, error } = await sbGetTransactions(_currentUserId);
   if (error) {
     console.error("[services] Failed to load transactions:", error.message);
     return { error };
   }
-  // Supabase columns: id, title, amount, category, type, date
-  // Map to the shape the rest of the app expects
   _txCache = (data || []).map(normalizeTx);
   return { error: null };
 }
@@ -90,10 +106,10 @@ function normalizeTx(row) {
     walletId: row.walletId ?? row.wallet_id ?? null,
     title:    row.title    ?? "",
     amount:   Number(row.amount) || 0,
-    type:     row.type     === "income" ? "income" : "expense",
+    type:     row.type === "income" ? "income" : "expense",
     category: row.category ?? "Uncategorised",
-    date:     row.date     ?? todayISO(),
-    note:     row.note     ?? "",
+    date:     row.date ?? todayISO(),
+    note:     row.note ?? "",
   };
 }
 
@@ -102,7 +118,7 @@ export function getState() {
   return deepClone({ wallets: _wallets, transactions: _txCache });
 }
 
-// ── Wallets (localStorage only – no wallet table in Supabase) ─
+// ── Wallets ───────────────────────────────────────────────────
 
 export function listWallets() {
   return deepClone(_wallets);
@@ -165,15 +181,12 @@ export function findWallet(id) {
 // ── Transactions ──────────────────────────────────────────────
 
 export function listTransactions() {
-  // Return cache copy so callers get the same snapshot shape as before
   return deepClone(_txCache);
 }
 
-/**
- * createTransaction — async, writes to Supabase then updates cache.
- * Returns { transaction, wallet } on success or { error } on failure.
- */
 export async function createTransaction({ walletId, type, amount, category, date, note }) {
+  if (!_currentUserId) return { error: "Not authenticated." };
+
   const wallet = _wallets.find((w) => w.id === walletId);
   if (!wallet) return { error: "Wallet is required." };
 
@@ -191,29 +204,28 @@ export async function createTransaction({ walletId, type, amount, category, date
     return { error: `Expense exceeds wallet balance (${formatCurrency(wallet.balance)}).` };
   }
 
-  // Write to Supabase
-  // The supabase helper signature is: addTransaction(title, amount, category, type, date)
-  // We use category as the title since the old schema had no title field.
   const title = trimmedCategory;
-  const { data, error } = await sbAddTransaction(title, numericAmount, trimmedCategory, type === "income" ? "income" : "expense", dateISO);
+  const { data, error } = await sbAddTransaction(
+    _currentUserId,
+    title,
+    numericAmount,
+    trimmedCategory,
+    type === "income" ? "income" : "expense",
+    dateISO
+  );
 
   if (error) return { error: `Database error: ${error.message}` };
 
-  // Update wallet balance locally
   if (type === "income")  wallet.balance += numericAmount;
   if (type === "expense") wallet.balance -= numericAmount;
   saveWallets(_wallets);
 
-  // Insert into cache (prepend so it shows newest-first)
   const tx = normalizeTx({ ...data, walletId, note: (note || "").trim() });
   _txCache.unshift(tx);
 
   return { transaction: deepClone(tx), wallet: deepClone(wallet) };
 }
 
-/**
- * deleteTransaction — async, removes from Supabase then updates cache.
- */
 export async function deleteTransaction(id) {
   const tx = _txCache.find((t) => t.id === id);
   if (!tx) return { error: "Transaction not found." };
@@ -221,7 +233,6 @@ export async function deleteTransaction(id) {
   const { error } = await sbDeleteTransaction(id);
   if (error) return { error: `Database error: ${error.message}` };
 
-  // Reverse wallet balance effect
   const wallet = _wallets.find((w) => w.id === tx.walletId);
   if (wallet) {
     if (tx.type === "income")  wallet.balance -= tx.amount;
@@ -233,9 +244,6 @@ export async function deleteTransaction(id) {
   return { success: true };
 }
 
-/**
- * updateTransaction — async, patches Supabase row then updates cache.
- */
 export async function updateTransaction(id, { amount, category, date, note, type }) {
   const tx = _txCache.find((t) => t.id === id);
   if (!tx) return { error: "Transaction not found." };
@@ -253,18 +261,15 @@ export async function updateTransaction(id, { amount, category, date, note, type
 
   const newType = type === "income" ? "income" : "expense";
 
-  // Temporarily reverse old balance effect to check headroom
   if (tx.type === "income")  wallet.balance -= tx.amount;
   if (tx.type === "expense") wallet.balance += tx.amount;
 
   if (newType === "expense" && wallet.balance < newAmount) {
-    // Restore before returning error
     if (tx.type === "income")  wallet.balance += tx.amount;
     if (tx.type === "expense") wallet.balance -= tx.amount;
     return { error: "Expense exceeds wallet balance." };
   }
 
-  // Write to Supabase
   const updatedFields = {
     title:    trimmedCategory,
     amount:   newAmount,
@@ -276,24 +281,21 @@ export async function updateTransaction(id, { amount, category, date, note, type
 
   const { data, error } = await sbUpdateTransaction(id, updatedFields);
   if (error) {
-    // Restore balance before returning
     if (tx.type === "income")  wallet.balance += tx.amount;
     if (tx.type === "expense") wallet.balance -= tx.amount;
     return { error: `Database error: ${error.message}` };
   }
 
-  // Apply new balance effect
   if (newType === "income")  wallet.balance += newAmount;
   if (newType === "expense") wallet.balance -= newAmount;
   saveWallets(_wallets);
 
-  // Patch cache entry in-place
   Object.assign(tx, normalizeTx({ ...data, walletId: tx.walletId }));
 
   return { transaction: deepClone(tx), wallet: deepClone(wallet) };
 }
 
-// ── Analytics (pure computation from cache — unchanged) ───────
+// ── Analytics ─────────────────────────────────────────────────
 
 export function computeAnalytics() {
   const wallets      = _wallets;

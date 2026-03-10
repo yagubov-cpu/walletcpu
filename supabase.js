@@ -13,16 +13,100 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 
 const TABLE = "transactions";
 
-// ── getTransactions ───────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════
+//  AUTH HELPERS
+// ════════════════════════════════════════════════════════════════
+
 /**
- * Fetch all transactions ordered by date (newest first).
- * @returns {{ data: Array|null, error: object|null }}
+ * Get the current session (null if not logged in).
+ * @returns {{ session: object|null, error: object|null }}
  */
-export async function getTransactions() {
+export async function getSession() {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    return { session: data.session, error: null };
+  } catch (error) {
+    console.error("[getSession]", error.message);
+    return { session: null, error };
+  }
+}
+
+/**
+ * Sign up a new user with email + password.
+ * @param {string} email
+ * @param {string} password
+ * @returns {{ user: object|null, error: object|null }}
+ */
+export async function signUp(email, password) {
+  try {
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) throw error;
+    return { user: data.user, error: null };
+  } catch (error) {
+    console.error("[signUp]", error.message);
+    return { user: null, error };
+  }
+}
+
+/**
+ * Sign in an existing user with email + password.
+ * @param {string} email
+ * @param {string} password
+ * @returns {{ user: object|null, session: object|null, error: object|null }}
+ */
+export async function signIn(email, password) {
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return { user: data.user, session: data.session, error: null };
+  } catch (error) {
+    console.error("[signIn]", error.message);
+    return { user: null, session: null, error };
+  }
+}
+
+/**
+ * Sign out the current user.
+ * @returns {{ error: object|null }}
+ */
+export async function signOut() {
+  try {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+    return { error: null };
+  } catch (error) {
+    console.error("[signOut]", error.message);
+    return { error };
+  }
+}
+
+/**
+ * Subscribe to auth state changes (SIGNED_IN / SIGNED_OUT events).
+ * @param {(event: string, session: object|null) => void} callback
+ * @returns Supabase subscription object
+ */
+export function onAuthStateChange(callback) {
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    callback(event, session);
+  });
+  return data.subscription;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  TRANSACTION HELPERS  (all scoped to userId)
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Fetch all transactions for a specific user, ordered newest first.
+ * @param {string} userId
+ */
+export async function getTransactions(userId) {
   try {
     const { data, error } = await supabase
       .from(TABLE)
       .select("*")
+      .eq("user_id", userId)
       .order("date", { ascending: false });
 
     if (error) throw error;
@@ -33,21 +117,20 @@ export async function getTransactions() {
   }
 }
 
-// ── addTransaction ────────────────────────────────────────────
 /**
- * Insert a new transaction row.
+ * Insert a new transaction row for the given user.
+ * @param {string} userId
  * @param {string} title
  * @param {number} amount
  * @param {string} category
  * @param {"income"|"expense"} type
  * @param {string} date  — ISO date string, e.g. "2025-03-11"
- * @returns {{ data: object|null, error: object|null }}
  */
-export async function addTransaction(title, amount, category, type, date) {
+export async function addTransaction(userId, title, amount, category, type, date) {
   try {
     const { data, error } = await supabase
       .from(TABLE)
-      .insert([{ title, amount, category, type, date }])
+      .insert([{ user_id: userId, title, amount, category, type, date }])
       .select()
       .single();
 
@@ -59,11 +142,9 @@ export async function addTransaction(title, amount, category, type, date) {
   }
 }
 
-// ── deleteTransaction ─────────────────────────────────────────
 /**
  * Delete a transaction by id.
  * @param {string|number} id
- * @returns {{ data: object|null, error: object|null }}
  */
 export async function deleteTransaction(id) {
   try {
@@ -82,12 +163,10 @@ export async function deleteTransaction(id) {
   }
 }
 
-// ── updateTransaction ─────────────────────────────────────────
 /**
  * Update an existing transaction by id.
  * @param {string|number} id
- * @param {{ title?: string, amount?: number, category?: string, type?: string, date?: string }} updatedData
- * @returns {{ data: object|null, error: object|null }}
+ * @param {object} updatedData
  */
 export async function updateTransaction(id, updatedData) {
   try {
