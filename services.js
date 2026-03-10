@@ -197,6 +197,65 @@ export function createTransaction({
   return { transaction: deepClone(transaction), wallet: deepClone(wallet) };
 }
 
+export function deleteTransaction(id) {
+  const tx = state.transactions.find((t) => t.id === id);
+  if (!tx) return { error: "Transaction not found." };
+
+  // Reverse the wallet balance effect
+  const wallet = state.wallets.find((w) => w.id === tx.walletId);
+  if (wallet) {
+    if (tx.type === "income")  wallet.balance -= tx.amount;
+    if (tx.type === "expense") wallet.balance += tx.amount;
+  }
+
+  state.transactions = state.transactions.filter((t) => t.id !== id);
+  persist();
+  return { success: true };
+}
+
+export function updateTransaction(id, { amount, category, date, note, type }) {
+  const tx = state.transactions.find((t) => t.id === id);
+  if (!tx) return { error: "Transaction not found." };
+
+  const wallet = state.wallets.find((w) => w.id === tx.walletId);
+  if (!wallet) return { error: "Associated wallet not found." };
+
+  const newAmount = parseNumber(amount);
+  if (!Number.isFinite(newAmount) || newAmount <= 0) {
+    return { error: "Amount must be a positive number." };
+  }
+
+  const trimmedCategory = (category || "").trim();
+  if (!trimmedCategory) return { error: "Category is required." };
+
+  const newType = type === "income" ? "income" : "expense";
+
+  // Reverse old effect
+  if (tx.type === "income")  wallet.balance -= tx.amount;
+  if (tx.type === "expense") wallet.balance += tx.amount;
+
+  // Check new effect
+  if (newType === "expense" && wallet.balance < newAmount) {
+    // Re-apply old effect before returning error
+    if (tx.type === "income")  wallet.balance += tx.amount;
+    if (tx.type === "expense") wallet.balance -= tx.amount;
+    return { error: `Expense exceeds wallet balance.` };
+  }
+
+  // Apply new effect
+  if (newType === "income")  wallet.balance += newAmount;
+  if (newType === "expense") wallet.balance -= newAmount;
+
+  tx.amount   = newAmount;
+  tx.category = trimmedCategory;
+  tx.date     = date || tx.date;
+  tx.note     = (note || "").trim();
+  tx.type     = newType;
+
+  persist();
+  return { transaction: deepClone(tx), wallet: deepClone(wallet) };
+}
+
 // Analytics
 export function computeAnalytics() {
   const wallets = state.wallets;
