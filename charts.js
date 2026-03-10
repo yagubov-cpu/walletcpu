@@ -37,23 +37,23 @@ export function initCharts(analytics) {
           position: "bottom",
           align: "center",
           labels: {
-            color: "#E2E8F0",
+            color: "#e2e8f0",
             usePointStyle: true,
             boxWidth: 8,
             padding: 16,
             font: {
-              family: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+              family: "DM Sans, system-ui, -apple-system, sans-serif",
               size: 11,
             },
           },
         },
         tooltip: {
-          backgroundColor: "rgba(15,23,42,0.96)",
-          borderColor: "rgba(148,163,184,0.4)",
+          backgroundColor: "rgba(13,17,23,0.97)",
+          borderColor: "rgba(99,179,237,0.35)",
           borderWidth: 1,
           padding: 10,
-          titleColor: "#E2E8F0",
-          bodyColor: "#CBD5F5",
+          titleColor: "#e2e8f0",
+          bodyColor: "#94a3b8",
           callbacks: {
             label: (ctx) =>
               `${ctx.label}: ${formatCurrency(ctx.parsed)}`,
@@ -80,7 +80,7 @@ export function initCharts(analytics) {
         {
           label: "Income",
           data: monthlyData.income,
-          backgroundColor: "rgba(34, 197, 94, 0.85)",
+          backgroundColor: "rgba(52, 211, 153, 0.88)",
           borderRadius: 6,
           borderSkipped: false,
           maxBarThickness: 32,
@@ -88,7 +88,7 @@ export function initCharts(analytics) {
         {
           label: "Expenses",
           data: monthlyData.expense,
-          backgroundColor: "rgba(239, 68, 68, 0.9)",
+          backgroundColor: "rgba(248, 113, 113, 0.90)",
           borderRadius: 6,
           borderSkipped: false,
           maxBarThickness: 32,
@@ -109,10 +109,10 @@ export function initCharts(analytics) {
       scales: {
         x: {
           ticks: {
-            color: "#64748B",
+            color: "#64748b",
             padding: 6,
             font: {
-              family: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+              family: "DM Sans, system-ui, -apple-system, sans-serif",
               size: 11,
             },
           },
@@ -123,16 +123,16 @@ export function initCharts(analytics) {
         },
         y: {
           ticks: {
-            color: "#64748B",
+            color: "#64748b",
             padding: 6,
             font: {
-              family: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+              family: "DM Sans, system-ui, -apple-system, sans-serif",
               size: 11,
             },
             callback: (value) => formatCurrency(value),
           },
           grid: {
-            color: "rgba(148, 163, 184, 0.16)",
+            color: "rgba(99,179,237,0.09)",
             drawBorder: false,
             borderDash: [4, 4],
           },
@@ -143,23 +143,23 @@ export function initCharts(analytics) {
           position: "top",
           align: "end",
           labels: {
-            color: "#E2E8F0",
+            color: "#e2e8f0",
             usePointStyle: true,
             boxWidth: 8,
             padding: 12,
             font: {
-              family: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+              family: "DM Sans, system-ui, -apple-system, sans-serif",
               size: 11,
             },
           },
         },
         tooltip: {
-          backgroundColor: "rgba(15,23,42,0.96)",
-          borderColor: "rgba(148,163,184,0.4)",
+          backgroundColor: "rgba(13,17,23,0.97)",
+          borderColor: "rgba(99,179,237,0.35)",
           borderWidth: 1,
           padding: 10,
-          titleColor: "#E2E8F0",
-          bodyColor: "#CBD5F5",
+          titleColor: "#e2e8f0",
+          bodyColor: "#94a3b8",
           callbacks: {
             label: (ctx) =>
               `${ctx.dataset.label}: ${formatCurrency(ctx.parsed.y)}`,
@@ -187,23 +187,23 @@ export function initCharts(analytics) {
           position: "bottom",
           align: "center",
           labels: {
-            color: "#E2E8F0",
+            color: "#e2e8f0",
             usePointStyle: true,
             boxWidth: 8,
             padding: 16,
             font: {
-              family: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+              family: "DM Sans, system-ui, -apple-system, sans-serif",
               size: 11,
             },
           },
         },
         tooltip: {
-          backgroundColor: "rgba(15,23,42,0.96)",
-          borderColor: "rgba(148,163,184,0.4)",
+          backgroundColor: "rgba(13,17,23,0.97)",
+          borderColor: "rgba(99,179,237,0.35)",
           borderWidth: 1,
           padding: 10,
-          titleColor: "#E2E8F0",
-          bodyColor: "#CBD5F5",
+          titleColor: "#e2e8f0",
+          bodyColor: "#94a3b8",
           callbacks: {
             label: (ctx) =>
               `${ctx.label}: ${formatCurrency(ctx.parsed)}`,
@@ -278,11 +278,12 @@ function toWalletData(byWalletSpending) {
 
 function generateColors(count) {
   const baseColors = [
-    "#3B82F6",
-    "#22C55E",
-    "#F59E0B",
-    "#EF4444",
-    "#8B5CF6",
+    "#63B3ED",
+    "#34d399",
+    "#fbbf24",
+    "#f87171",
+    "#a78bfa",
+    "#22d3ee",
   ];
   if (count <= baseColors.length) return baseColors.slice(0, count);
   const colors = [];
