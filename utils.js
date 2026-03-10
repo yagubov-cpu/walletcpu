@@ -1,14 +1,15 @@
 // Shared utility helpers (formatting, dates, CSV/JSON export)
 
-export const CURRENCY = "USD";
+export const CURRENCY = "AZN";
 
 export function formatCurrency(value) {
   const number = Number.isFinite(value) ? value : 0;
-  return number.toLocaleString(undefined, {
-    style: "currency",
-    currency: CURRENCY,
+  // Format number with comma thousands separator and dot decimal
+  const formatted = number.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+  return `${formatted} ₼`;
 }
 
 export function parseNumber(value) {
