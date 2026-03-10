@@ -1,7 +1,8 @@
 // supabase.js — Wallet App Database Helper
-// Requires: @supabase/supabase-js
+// Browser-native ES module — no build tools required.
+// Uses the Supabase JS v2 CDN ESM bundle.
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
 // ── Credentials ───────────────────────────────────────────────
 const supabaseUrl = "https://qlkgaczxgxxcwjagjauy.supabase.co";

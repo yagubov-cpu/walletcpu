@@ -953,3 +953,37 @@ body[data-theme="light"] .tx-toast {
   .tx-toast { right: 16px; bottom: 16px; left: 16px; width: auto; }
 }
 
+
+/* ── Supabase loading / error states ─────────────────────────── */
+.db-loading {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 0.82rem;
+}
+.db-spinner {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid var(--border-2);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.db-error {
+  color: var(--red);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  text-align: center;
+}
+.db-error-msg {
+  font-size: 0.72rem;
+  color: var(--text-3);
+  display: block;
+  margin-top: 4px;
+  font-family: 'DM Mono', monospace;
+}

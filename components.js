@@ -12,6 +12,7 @@ import {
   getTheme,
   listTransactions,
   listWallets,
+  loadAllTransactions,
   setTheme,
   updateWallet,
 } from "./services.js";
@@ -19,11 +20,22 @@ import {
 import { downloadFile, formatCurrency, toCSV, todayISO } from "./utils.js";
 import { initCharts, updateCharts } from "./charts.js";
 
-export function initApp() {
+export async function initApp() {
   const els = queryElements();
   applyInitialTheme(els);
   wireThemeToggle(els);
   wireExport(els);
+
+  // Show loading state while fetching from Supabase
+  showLoadingState(els);
+
+  const { error } = await loadAllTransactions();
+  if (error) {
+    showDbError(els, error);
+    return;
+  }
+
+  hideLoadingState(els);
 
   renderWallets(els);
   syncWalletSelects(els);
@@ -250,9 +262,14 @@ function wireWalletList(els) {
 // Transactions
 function wireTransactionForm(els) {
   els.transactionDate.value = todayISO();
-  els.transactionForm.addEventListener("submit", (event) => {
+  els.transactionForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     els.transactionError.textContent = "";
+
+    const submitBtn = els.transactionForm.querySelector("button[type='submit']");
+    const origText  = submitBtn ? submitBtn.textContent : "";
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
+
     const payload = {
       walletId: els.transactionWallet.value,
       type: els.transactionType.value,
@@ -261,8 +278,11 @@ function wireTransactionForm(els) {
       date: els.transactionDate.value,
       note: els.transactionNote.value,
     };
-    const result = createTransaction(payload);
+    const result = await createTransaction(payload);
+
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = origText; }
     if (result.error) { els.transactionError.textContent = result.error; return; }
+
     els.transactionForm.reset();
     els.transactionType.value = "income";
     els.transactionDate.value = todayISO();
@@ -593,7 +613,7 @@ function wireEditModal(els) {
   // Edit form submit
   const form = document.getElementById("tx-edit-form");
   if (form) {
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const id       = document.getElementById("tx-edit-id").value;
       const amount   = document.getElementById("tx-edit-amount").value;
@@ -602,7 +622,16 @@ function wireEditModal(els) {
       const note     = document.getElementById("tx-edit-note").value;
       const type     = document.getElementById("tx-edit-type").value;
 
-      const result = updateTransaction(id, { amount, date, category, note, type });
+      const saveBtn  = form.querySelector(".tx-save-btn");
+      if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Saving…"; }
+
+      const result = await updateTransaction(id, { amount, date, category, note, type });
+
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg> Save Changes`;
+      }
+
       if (result.error) {
         document.getElementById("tx-edit-error").textContent = result.error;
         return;
@@ -655,11 +684,19 @@ function closeDeleteConfirm() {
 }
 
 function wireDeleteConfirmModal(els) {
-  document.addEventListener("click", (e) => {
-    if (e.target.closest("#tx-delete-cancel")) closeDeleteConfirm();
+  document.addEventListener("click", async (e) => {
+    if (e.target.closest("#tx-delete-cancel")) { closeDeleteConfirm(); return; }
     if (e.target.closest("#tx-delete-confirm")) {
       if (!_pendingDeleteId) return;
-      const result = deleteTransaction(_pendingDeleteId);
+      const id = _pendingDeleteId;
+
+      const confirmBtn = document.getElementById("tx-delete-confirm");
+      if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = "Deleting…"; }
+
+      const result = await deleteTransaction(id);
+
+      if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = "Delete"; }
+
       closeDeleteConfirm();
       if (result.error) { alert(result.error); return; }
       fullRefresh(els);
@@ -723,4 +760,45 @@ function renderAnalytics(els, analytics) {
   els.totalIncome.textContent    = formatCurrency(analytics.totalIncome);
   els.totalExpenses.textContent  = formatCurrency(analytics.totalExpenses);
   els.netBalance.textContent     = formatCurrency(analytics.net);
+}
+
+// ── Loading / error state helpers ────────────────────────────
+
+function showLoadingState(els) {
+  const recentEl = document.getElementById("recent-transactions-list");
+  if (recentEl) {
+    recentEl.innerHTML = `
+      <div class="empty-sm db-loading">
+        <span class="db-spinner"></span> Connecting to database…
+      </div>`;
+  }
+  const tbody = document.getElementById("transactions-tbody");
+  const empty = document.getElementById("transactions-empty");
+  if (tbody) tbody.innerHTML = "";
+  if (empty) {
+    empty.style.display = "flex";
+    empty.textContent   = "Loading records…";
+  }
+}
+
+function hideLoadingState(els) {
+  const empty = document.getElementById("transactions-empty");
+  if (empty) empty.textContent = "No records yet.";
+}
+
+function showDbError(els, error) {
+  const recentEl = document.getElementById("recent-transactions-list");
+  if (recentEl) {
+    recentEl.innerHTML = `
+      <div class="empty-sm db-error">
+        ⚠️ Could not load data.<br/>
+        <span class="db-error-msg">${error.message || String(error)}</span>
+      </div>`;
+  }
+  const empty = document.getElementById("transactions-empty");
+  if (empty) {
+    empty.style.display = "flex";
+    empty.textContent   = "⚠️ Failed to connect to database.";
+  }
+  console.error("[initApp] Supabase error:", error);
 }
