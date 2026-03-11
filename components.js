@@ -414,31 +414,52 @@ function syncWalletSelects(els) {
 }
 
 function resetWalletForm(els) {
-  els.walletId.value = "";
-  els.walletForm.reset();
-  els.walletSubmitButton.textContent = "Save account";
-  els.walletCancelEdit.style.display = "none";
-  els.walletError.textContent = "";
+  if (els.walletId)          els.walletId.value = "";
+  if (els.walletForm)        els.walletForm.reset();
+  if (els.walletSubmitButton) els.walletSubmitButton.textContent = "Save account";
+  if (els.walletCancelEdit)  els.walletCancelEdit.style.display = "none";
+  if (els.walletError)       els.walletError.textContent = "";
 }
+
+// { once: false } would stack listeners on every bootDashboard() call.
+// We guard with a WeakSet so the submit/cancel handlers are attached only
+// once per form element, even if wireWalletForm() is called again.
+const _wiredForms = new WeakSet();
 
 function wireWalletForm(els) {
   resetWalletForm(els);
-  els.walletCancelEdit.addEventListener("click", () => resetWalletForm(els));
-  els.walletForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    els.walletError.textContent = "";
-    const id = els.walletId.value || null;
-    const payload = { name: els.walletName.value, type: els.walletType.value, startingBalance: els.walletBalance.value };
-    const result = id ? updateWallet(id, payload) : addWallet(payload);
-    if (result.error) { els.walletError.textContent = result.error; return; }
-    resetWalletForm(els);
-    renderWallets(els);
-    syncWalletSelects(els);
-    const analytics = computeAnalytics();
-    renderAnalytics(els, analytics);
-    renderRecentTransactions(els);
-    updateCharts(analytics);
-  });
+
+  // Guard against double-wiring (e.g. sign-out → sign-in without page reload)
+  if (els.walletForm && !_wiredForms.has(els.walletForm)) {
+    _wiredForms.add(els.walletForm);
+
+    if (els.walletCancelEdit) {
+      els.walletCancelEdit.addEventListener("click", () => resetWalletForm(els));
+    }
+
+    els.walletForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (els.walletError) els.walletError.textContent = "";
+      const id = els.walletId?.value || null;
+      const payload = {
+        name:            els.walletName?.value   ?? "",
+        type:            els.walletType?.value   ?? "bank",
+        startingBalance: els.walletBalance?.value ?? "0",
+      };
+      const result = id ? updateWallet(id, payload) : addWallet(payload);
+      if (result.error) {
+        if (els.walletError) els.walletError.textContent = result.error;
+        return;
+      }
+      resetWalletForm(els);
+      renderWallets(els);
+      syncWalletSelects(els);
+      const analytics = computeAnalytics();
+      renderAnalytics(els, analytics);
+      renderRecentTransactions(els);
+      updateCharts(analytics);
+    });
+  }
 }
 
 function wireWalletList(els) {
