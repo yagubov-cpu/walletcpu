@@ -13,8 +13,6 @@ import {
   listTransactions,
   listWallets,
   loadAllTransactions,
-  resetState,
-  setCurrentUser,
   setTheme,
   updateWallet,
 } from "./services.js";
@@ -30,100 +28,89 @@ import {
 import { downloadFile, formatCurrency, toCSV, todayISO } from "./utils.js";
 import { initCharts, updateCharts } from "./charts.js";
 
-// ══════════════════════════════════════════════════════════════
-//  AUTH GATE — the ONLY entry point called from main.js
-// ══════════════════════════════════════════════════════════════
-
-// These two guards are the key fix that prevents the redirect loop.
+// ═════════════════════════════════════════════════════════════
+//  AUTH GATE  — the only entry point called by main.js
+// ═════════════════════════════════════════════════════════════
 //
-// The bug this solves:
-//   Supabase v2 fires BOTH "INITIAL_SESSION" and (on some token
-//   refresh cycles) "SIGNED_IN" after the listener is registered.
-//   Without these guards, bootDashboard() could run twice in the
-//   same page load, stacking duplicate event listeners and causing
-//   the wallet form submit to fire twice — the second attempt fails
-//   with a stale state and the error handler shows the auth screen.
+//  Why the modal was staying visible after login:
 //
-// _dashboardBooted  — prevents bootDashboard from running more than once
-// _authFormsWired   — prevents auth form listeners stacking on re-display
+//  The previous version relied entirely on onAuthStateChange firing
+//  "SIGNED_IN" to hide the auth screen. But Supabase v2 emits
+//  "INITIAL_SESSION" as the very first event when the listener is
+//  registered — and the seenFirst skip-flag consumed that event.
+//  On some Supabase project configurations, no separate "SIGNED_IN"
+//  event follows a successful signInWithPassword() call within the
+//  same listener registration cycle — meaning hideAuthScreen() was
+//  never called and the modal stayed on top of the loaded dashboard.
+//
+//  THE FIX: Act directly in the login/signup submit handlers.
+//  After signIn() returns successfully, immediately hide the auth
+//  screen and boot the dashboard right there — don't wait for an
+//  async event that may or may not arrive. onAuthStateChange is kept
+//  only as a safety net for session expiry (SIGNED_OUT) and token
+//  refresh — not as the trigger for the initial UI transition.
 
-let _dashboardBooted = false;
-let _authFormsWired  = false;
+let _dashboardBooted = false;  // prevents double-boot from any source
+let _authFormsWired  = false;  // prevents stacking form listeners on re-display
 
 export async function initApp() {
-  // ── Step 1: read the locally-cached session (no network call) ─
+  // ── Step 1: check for an existing session ──────────────────
   //
-  // getSession() reads the token that Supabase already stored in
-  // localStorage after the last successful sign-in.  This is the
-  // correct and ONLY safe way to gate the initial render.
-  //
-  // Why NOT supabase.auth.getUser()?
-  //   getUser() always makes a network request to validate the token.
-  //   If the network is slow or the Supabase server hiccups even for
-  //   100 ms, it returns an error — causing the app to incorrectly
-  //   treat an authenticated user as "not logged in" and redirect them
-  //   to the login screen.  getSession() never has this problem.
+  // getSession() reads the token Supabase already wrote to localStorage
+  // after the user last signed in. No network request — never fails
+  // transiently — never incorrectly shows the login screen to an
+  // already-authenticated user.
   const { session } = await getSession();
 
   if (session?.user) {
-    // Valid session found in localStorage → go straight to dashboard.
+    // Returning user: go straight to dashboard, never show auth screen.
+    hideAuthScreen();
     showAppShell();
     await bootDashboard(session.user);
   } else {
-    // No session → show login/signup.
+    // No session: show login/signup form.
     showAuthScreen();
   }
 
-  // ── Step 2: subscribe to future auth transitions ──────────────
+  // ── Step 2: listen for session expiry / explicit logout only ──
   //
-  // Supabase v2 ALWAYS fires "INITIAL_SESSION" as the very first event
-  // immediately after onAuthStateChange is registered — whether the user
-  // is logged in or not.  We have already handled the initial state in
-  // Step 1, so we skip that first event entirely.
-  //
-  // We only act on subsequent real transitions:
-  //   "SIGNED_IN"  → user just submitted the login form
-  //   "SIGNED_OUT" → user clicked logout or the session expired
-  let initialEventSeen = false;
-
-  onAuthStateChange(async (event, newSession) => {
-    // Skip the synthetic INITIAL_SESSION / first tick.
-    if (!initialEventSeen) {
-      initialEventSeen = true;
-      return;
-    }
-
-    if (event === "SIGNED_IN" && newSession?.user) {
-      // Guard: only boot if the dashboard isn't already showing.
-      // This prevents a spurious second SIGNED_IN (e.g. from a silent
-      // token refresh on some Supabase project configurations) from
-      // re-running boot and double-stacking all event listeners.
-      if (!_dashboardBooted) {
-        hideAuthScreen();
-        showAppShell();
-        await bootDashboard(newSession.user);
-      }
-      return;
-    }
-
+  // We do NOT use this listener to trigger the initial login transition.
+  // That is handled directly inside wireAuthForms() → loginForm submit.
+  // This listener's sole job is to react to SIGNED_OUT (session expired
+  // or user clicked logout) and to catch edge cases like password reset.
+  onAuthStateChange(async (event, session) => {
     if (event === "SIGNED_OUT") {
-      // Only tear down if we were actually showing the dashboard.
-      if (_dashboardBooted) {
-        teardownDashboard();
-        showAuthScreen();
-      }
+      _dashboardBooted = false;
+      _authFormsWired  = false;   // allow re-wiring after sign-out
+      hideAppShell();
+      showAuthScreen();
+      return;
     }
 
-    // TOKEN_REFRESHED, USER_UPDATED, PASSWORD_RECOVERY, etc.
-    // → no UI change required.
+    // Safety net: if somehow we receive SIGNED_IN but the dashboard
+    // was never booted (e.g. OAuth redirect flow), boot it now.
+    if (event === "SIGNED_IN" && session?.user && !_dashboardBooted) {
+      hideAuthScreen();
+      showAppShell();
+      await bootDashboard(session.user);
+    }
+
+    // INITIAL_SESSION, TOKEN_REFRESHED, USER_UPDATED → no UI change needed.
   });
 }
 
-// ── Boot the full dashboard for a verified user ───────────────
+// ── Boot the full dashboard for a confirmed user ──────────────
 async function bootDashboard(user) {
-  _dashboardBooted = true;       // set first to block any re-entrant call
-  setCurrentUser(user.id);       // tell services.js which user's data to load
-  updateUserDisplay(user);       // show email/avatar in sidebar
+  _dashboardBooted = true;
+
+  // Show the user's email initials in the sidebar avatar
+  const avatar = document.getElementById("user-avatar");
+  const emailEl = document.getElementById("user-email");
+  if (avatar && user?.email) {
+    avatar.textContent = user.email.slice(0, 2).toUpperCase();
+    avatar.title = user.email;
+  }
+  if (emailEl && user?.email) emailEl.textContent = user.email;
 
   const els = queryElements();
   applyInitialTheme(els);
@@ -134,19 +121,13 @@ async function bootDashboard(user) {
   showLoadingState(els);
 
   const { error } = await loadAllTransactions();
-  if (error) {
-    showDbError(els, error);
-    return;
-  }
+  if (error) { showDbError(els, error); return; }
 
   hideLoadingState(els);
-
   renderWallets(els);
   syncWalletSelects(els);
-
   wireWalletForm(els);
   wireWalletList(els);
-
   wireTransactionForm(els);
   wireTransactionFilters(els);
   renderTransactions(els);
@@ -163,127 +144,140 @@ async function bootDashboard(user) {
   wireDeleteConfirmModal(els);
 }
 
-// ── Tear down on sign-out ─────────────────────────────────────
-function teardownDashboard() {
-  _dashboardBooted = false;
-  resetState();         // clears _currentUserId, _txCache, _wallets
-  hideAppShell();
-}
+// ── Show / hide helpers ───────────────────────────────────────
+// The CSS rules:
+//   #auth-screen[hidden] { display: none !important; }
+//   #app-shell[hidden]   { display: none !important; }
+// ensure the `hidden` attribute always wins over any other display rule.
 
-// ── Shell / auth screen toggling ──────────────────────────────
 function showAppShell()  { document.getElementById("app-shell")?.removeAttribute("hidden"); }
 function hideAppShell()  { document.getElementById("app-shell")?.setAttribute("hidden", ""); }
-function showAuthScreen() { document.getElementById("auth-screen")?.removeAttribute("hidden"); wireAuthForms(); }
-function hideAuthScreen() { document.getElementById("auth-screen")?.setAttribute("hidden", ""); }
 
-// ── Sidebar user display ──────────────────────────────────────
-function updateUserDisplay(user) {
-  const addr   = user?.email || "";
-  const avatar = document.getElementById("user-avatar");
-  const email  = document.getElementById("user-email");
-  if (avatar) avatar.textContent = addr.slice(0, 2).toUpperCase() || "??";
-  if (email)  email.textContent  = addr;
+function showAuthScreen() {
+  const el = document.getElementById("auth-screen");
+  if (el) el.removeAttribute("hidden");
+  wireAuthForms();
+}
+function hideAuthScreen() {
+  const el = document.getElementById("auth-screen");
+  if (el) el.setAttribute("hidden", "");
 }
 
 // ── Logout button ─────────────────────────────────────────────
 function wireLogoutButton() {
   const btn = document.getElementById("logout-btn");
   if (!btn) return;
-  // { once: true } ensures re-login + re-boot doesn't stack listeners
   btn.addEventListener("click", async () => {
-    btn.disabled    = true;
+    btn.disabled = true;
     btn.textContent = "Signing out…";
     await signOut();
-    // onAuthStateChange fires SIGNED_OUT → teardownDashboard()
+    // onAuthStateChange fires SIGNED_OUT → handler above does the UI teardown
   }, { once: true });
 }
 
-// ── Auth forms (login + signup tabs) ─────────────────────────
+// ── Auth forms (login + signup) ───────────────────────────────
 function wireAuthForms() {
   if (_authFormsWired) return;
   _authFormsWired = true;
 
   // Tab switching
-  const tabLogin    = document.getElementById("auth-tab-login");
-  const tabSignup   = document.getElementById("auth-tab-signup");
-  const panelLogin  = document.getElementById("auth-panel-login");
-  const panelSignup = document.getElementById("auth-panel-signup");
+  document.getElementById("auth-tab-login")?.addEventListener("click", () => {
+    document.getElementById("auth-tab-login")?.classList.add("auth-tab--active");
+    document.getElementById("auth-tab-signup")?.classList.remove("auth-tab--active");
+    document.getElementById("auth-panel-login")?.classList.add("auth-panel--active");
+    document.getElementById("auth-panel-signup")?.classList.remove("auth-panel--active");
+  });
+  document.getElementById("auth-tab-signup")?.addEventListener("click", () => {
+    document.getElementById("auth-tab-signup")?.classList.add("auth-tab--active");
+    document.getElementById("auth-tab-login")?.classList.remove("auth-tab--active");
+    document.getElementById("auth-panel-signup")?.classList.add("auth-panel--active");
+    document.getElementById("auth-panel-login")?.classList.remove("auth-panel--active");
+  });
 
-  function switchTab(which) {
-    tabLogin?.classList.toggle("auth-tab--active",    which === "login");
-    tabSignup?.classList.toggle("auth-tab--active",   which === "signup");
-    panelLogin?.classList.toggle("auth-panel--active",  which === "login");
-    panelSignup?.classList.toggle("auth-panel--active", which === "signup");
-  }
-  tabLogin?.addEventListener("click",  () => switchTab("login"));
-  tabSignup?.addEventListener("click", () => switchTab("signup"));
-
-  // ── Login ────────────────────────────────────────────────────
+  // ── Login ──────────────────────────────────────────────────
   const loginForm  = document.getElementById("auth-login-form");
   const loginError = document.getElementById("auth-login-error");
 
   loginForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const email    = document.getElementById("login-email").value.trim();
-    const password = document.getElementById("login-password").value;
+    const email    = document.getElementById("login-email")?.value.trim() ?? "";
+    const password = document.getElementById("login-password")?.value ?? "";
     const btn      = loginForm.querySelector("button[type='submit']");
 
-    loginError.textContent = "";
-    btn.disabled    = true;
-    btn.textContent = "Signing in…";
+    if (loginError) loginError.textContent = "";
+    if (btn) { btn.disabled = true; btn.textContent = "Signing in…"; }
 
-    const { error } = await signIn(email, password);
+    const { session, error } = await signIn(email, password);
 
-    btn.disabled    = false;
-    btn.textContent = "Sign in";
-
-    if (error) {
-      loginError.textContent = error.message || "Invalid credentials. Please try again.";
+    if (error || !session?.user) {
+      if (btn) { btn.disabled = false; btn.textContent = "Sign in"; }
+      if (loginError) loginError.textContent = error?.message || "Invalid credentials.";
       return;
     }
-    // Success: onAuthStateChange fires SIGNED_IN → bootDashboard
+
+    // ✅ Login succeeded — act immediately, don't wait for onAuthStateChange.
+    // This is the critical fix: the auth screen is hidden RIGHT HERE, before
+    // any async event might or might not fire.
+    if (btn) { btn.disabled = false; btn.textContent = "Sign in"; }
+    hideAuthScreen();
+    showAppShell();
+    if (!_dashboardBooted) {
+      await bootDashboard(session.user);
+    }
   });
 
-  // ── Sign-up ──────────────────────────────────────────────────
+  // ── Sign-up ────────────────────────────────────────────────
   const signupForm    = document.getElementById("auth-signup-form");
   const signupError   = document.getElementById("auth-signup-error");
   const signupSuccess = document.getElementById("auth-signup-success");
 
   signupForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const email    = document.getElementById("signup-email").value.trim();
-    const password = document.getElementById("signup-password").value;
-    const confirm  = document.getElementById("signup-confirm").value;
+    const email    = document.getElementById("signup-email")?.value.trim() ?? "";
+    const password = document.getElementById("signup-password")?.value ?? "";
+    const confirm  = document.getElementById("signup-confirm")?.value  ?? "";
     const btn      = signupForm.querySelector("button[type='submit']");
 
-    signupError.textContent   = "";
-    signupSuccess.textContent = "";
+    if (signupError)   signupError.textContent   = "";
+    if (signupSuccess) signupSuccess.textContent = "";
 
-    if (password !== confirm) { signupError.textContent = "Passwords do not match."; return; }
-    if (password.length < 6)  { signupError.textContent = "Password must be at least 6 characters."; return; }
+    if (password !== confirm) {
+      if (signupError) signupError.textContent = "Passwords do not match.";
+      return;
+    }
+    if (password.length < 6) {
+      if (signupError) signupError.textContent = "Password must be at least 6 characters.";
+      return;
+    }
 
-    btn.disabled    = true;
-    btn.textContent = "Creating account…";
-
+    if (btn) { btn.disabled = true; btn.textContent = "Creating account…"; }
     const { user, error } = await signUp(email, password);
+    if (btn) { btn.disabled = false; btn.textContent = "Create account"; }
 
-    btn.disabled    = false;
-    btn.textContent = "Create account";
+    if (error) {
+      if (signupError) signupError.textContent = error.message || "Sign-up failed.";
+      return;
+    }
 
-    if (error) { signupError.textContent = error.message || "Sign-up failed. Please try again."; return; }
-
-    // If email-confirm is OFF: SIGNED_IN fires automatically via
-    // onAuthStateChange — no extra code needed here.
-    // If email-confirm is ON: the user must verify before signing in.
     if (user && !user.confirmed_at) {
-      signupSuccess.textContent = "Account created! Check your email to confirm, then sign in.";
+      // Email confirmation is ON — user must verify before accessing the app.
+      if (signupSuccess) signupSuccess.textContent =
+        "Account created! Check your email to confirm, then sign in.";
       signupForm.reset();
       return;
     }
+
+    // Email confirmation is OFF — Supabase auto-signs them in.
+    // Re-read the session and boot directly, same as the login handler.
     signupForm.reset();
+    const { session: newSession } = await getSession();
+    if (newSession?.user && !_dashboardBooted) {
+      hideAuthScreen();
+      showAppShell();
+      await bootDashboard(newSession.user);
+    }
   });
 }
-
 
 function queryElements() {
   return {
