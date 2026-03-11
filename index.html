@@ -11,76 +11,6 @@
 </head>
 <body data-theme="dark">
 
-  <!-- ════════════════════════════════════════════════════════
-       AUTH SCREEN
-       Shown by default. JS hides it after confirming a session.
-       Uses `hidden` attribute → CSS: [hidden] { display:none !important }
-  ═════════════════════════════════════════════════════════════ -->
-  <div id="auth-screen">
-    <div class="auth-card">
-      <div class="auth-brand">
-        <div class="brand-mark">
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-            <rect x="1" y="1" width="9" height="9" rx="2.5" fill="currentColor" opacity=".95"/>
-            <rect x="12" y="1" width="9" height="9" rx="2.5" fill="currentColor" opacity=".55"/>
-            <rect x="1" y="12" width="9" height="9" rx="2.5" fill="currentColor" opacity=".55"/>
-            <rect x="12" y="12" width="9" height="9" rx="2.5" fill="currentColor" opacity=".25"/>
-          </svg>
-        </div>
-        <span class="brand-name">Wallet</span>
-      </div>
-      <p class="auth-tagline">Your personal finance dashboard</p>
-
-      <div class="auth-tabs">
-        <button class="auth-tab auth-tab--active" id="auth-tab-login"  type="button">Sign in</button>
-        <button class="auth-tab"                  id="auth-tab-signup" type="button">Create account</button>
-      </div>
-
-      <!-- Login panel -->
-      <div class="auth-panel auth-panel--active" id="auth-panel-login">
-        <form id="auth-login-form" autocomplete="on">
-          <div class="auth-field">
-            <label for="login-email">Email</label>
-            <input id="login-email" type="email" placeholder="you@example.com" required autocomplete="email" />
-          </div>
-          <div class="auth-field">
-            <label for="login-password">Password</label>
-            <input id="login-password" type="password" placeholder="••••••••" required autocomplete="current-password" />
-          </div>
-          <div class="auth-error" id="auth-login-error"></div>
-          <button class="auth-submit-btn" type="submit">Sign in</button>
-        </form>
-      </div>
-
-      <!-- Signup panel -->
-      <div class="auth-panel" id="auth-panel-signup">
-        <form id="auth-signup-form" autocomplete="on">
-          <div class="auth-field">
-            <label for="signup-email">Email</label>
-            <input id="signup-email" type="email" placeholder="you@example.com" required autocomplete="email" />
-          </div>
-          <div class="auth-field">
-            <label for="signup-password">Password</label>
-            <input id="signup-password" type="password" placeholder="At least 6 characters" required autocomplete="new-password" />
-          </div>
-          <div class="auth-field">
-            <label for="signup-confirm">Confirm password</label>
-            <input id="signup-confirm" type="password" placeholder="Repeat password" required autocomplete="new-password" />
-          </div>
-          <div class="auth-error"   id="auth-signup-error"></div>
-          <div class="auth-success" id="auth-signup-success"></div>
-          <button class="auth-submit-btn" type="submit">Create account</button>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <!-- ════════════════════════════════════════════════════════
-       APP SHELL
-       Hidden by default. JS shows it after confirming a session.
-  ═════════════════════════════════════════════════════════════ -->
-  <div id="app-shell" hidden>
-
   <!-- ═══════════════════════ SIDEBAR NAV ═══════════════════════ -->
   <nav class="sidebar">
     <div class="sidebar-brand">
@@ -127,8 +57,7 @@
         <span class="icon-moon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span>
         <span class="icon-sun"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg></span>
       </button>
-      <div class="user-avatar" id="user-avatar" title="">??</div>
-      <button id="logout-btn" class="logout-btn" type="button" title="Sign out">Sign out</button>
+      <div class="user-avatar" title="Local user">JD</div>
     </div>
   </nav>
 
@@ -509,24 +438,19 @@
     <button class="primary-btn btn-full" id="modal-goto-records" type="button">Open Records →</button>
   </div>
 
-  </div><!-- /app-shell -->
-
-  <!-- Scripts are placed OUTSIDE #app-shell so they load regardless of
-       the hidden attribute. Chart.js must be global before main.js runs. -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script type="module" src="main.js"></script>
   <script>
-    // Nav + modal wiring — runs after the DOM is parsed.
-    // Safe to run before auth resolves: elements exist in DOM, just hidden.
     (function () {
-      const navItems   = document.querySelectorAll('.nav-item[data-section]');
-      const sections   = document.querySelectorAll('.page-section');
+      const navItems = document.querySelectorAll('.nav-item[data-section]');
+      const sections = document.querySelectorAll('.page-section');
       const breadcrumb = document.getElementById('breadcrumb-label');
 
       function switchSection(name) {
         navItems.forEach(n => n.classList.toggle('active', n.dataset.section === name));
         sections.forEach(s => s.classList.toggle('active', s.id === 'section-' + name));
         if (breadcrumb) breadcrumb.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+        // Close mobile sidebar on nav
         document.querySelector('.sidebar')?.classList.remove('open');
       }
 
@@ -537,26 +461,26 @@
         if (btn) switchSection(btn.dataset.goto);
       });
 
-      // Quick-add modal
-      const addBtn   = document.getElementById('add-record-btn');
+      // Modal
+      const addBtn = document.getElementById('add-record-btn');
       const backdrop = document.getElementById('modal-backdrop');
-      const modal    = document.getElementById('quick-modal');
+      const modal = document.getElementById('quick-modal');
       const closeBtn = document.getElementById('modal-close');
-      const gotoRec  = document.getElementById('modal-goto-records');
+      const gotoRec = document.getElementById('modal-goto-records');
 
-      function openModal()  { backdrop?.classList.add('visible'); modal?.classList.add('visible'); modal?.removeAttribute('aria-hidden'); }
-      function closeModal() { backdrop?.classList.remove('visible'); modal?.classList.remove('visible'); modal?.setAttribute('aria-hidden', 'true'); }
+      function openModal() { backdrop.classList.add('visible'); modal.classList.add('visible'); modal.removeAttribute('aria-hidden'); }
+      function closeModal() { backdrop.classList.remove('visible'); modal.classList.remove('visible'); modal.setAttribute('aria-hidden', 'true'); }
 
       addBtn?.addEventListener('click', openModal);
       closeBtn?.addEventListener('click', closeModal);
       backdrop?.addEventListener('click', closeModal);
       gotoRec?.addEventListener('click', () => { closeModal(); switchSection('records'); });
 
+      // Sidebar mobile toggle
       document.getElementById('sidebar-toggle')?.addEventListener('click', () => {
         document.querySelector('.sidebar')?.classList.toggle('open');
       });
     })();
   </script>
-
 </body>
 </html>

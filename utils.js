@@ -1,16 +1,14 @@
 // Shared utility helpers (formatting, dates, CSV/JSON export)
 
-export const CURRENCY = "AZN";
+export const CURRENCY = "USD";
 
-// Format as  "1,250.00 ₼"  (comma thousands · dot decimal · ₼ suffix)
-// Manual formatting guarantees exact "1,250.00 ₼" appearance in all browsers.
 export function formatCurrency(value) {
   const number = Number.isFinite(value) ? value : 0;
-  const formatted = number.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
+  return number.toLocaleString(undefined, {
+    style: "currency",
+    currency: CURRENCY,
     maximumFractionDigits: 2,
   });
-  return formatted + " \u20BC";
 }
 
 export function parseNumber(value) {
@@ -28,6 +26,7 @@ export function monthKeyFromISO(dateISO) {
 }
 
 export function deepClone(value) {
+  // Use native structuredClone when available; fall back to JSON.
   if (typeof structuredClone === "function") {
     return structuredClone(value);
   }
@@ -57,10 +56,14 @@ export function toCSV(rows, { includeHeader = true } = {}) {
     }
     return s;
   };
+
   const lines = [];
-  if (includeHeader) lines.push(headers.map(escape).join(","));
+  if (includeHeader) {
+    lines.push(headers.map(escape).join(","));
+  }
   for (const row of rows) {
     lines.push(headers.map((h) => escape(row[h])).join(","));
   }
   return lines.join("\n");
 }
+
