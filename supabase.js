@@ -1,70 +1,110 @@
-// supabase.js — Wallet App Database Helper
-// Browser-native ES module — no build tools required.
+// supabase.js — Wallet App · Auth + Database helpers
+// Browser-native ES module, no build tools required.
 // Uses the Supabase JS v2 CDN ESM bundle.
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-// ── Credentials ───────────────────────────────────────────────
+// ── Client (ONE shared instance for the whole page) ───────────
 const supabaseUrl = "https://qlkgaczxgxxcwjagjauy.supabase.co";
 const supabaseKey = "sb_publishable_sGti8tCmTX6npP35rflVdg_LAjI4Wsb";
 
-// ── Client ────────────────────────────────────────────────────
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
 const TABLE = "transactions";
 
-// ── getTransactions ───────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════
+//  AUTH HELPERS
+// ════════════════════════════════════════════════════════════════
+
 /**
- * Fetch all transactions ordered by date (newest first).
- * @returns {{ data: Array|null, error: object|null }}
+ * Read the persisted session from Supabase's local-storage cache.
+ * ✅ Use this for the initial auth-gate check on page load.
+ * ✅ No network request — never produces false "not logged in" results.
+ * ❌ Do NOT use supabase.auth.getUser() for auth-gating — it always
+ *    hits the network and can fail transiently.
  */
-export async function getTransactions() {
+export async function getSession() {
+  const { data, error } = await supabase.auth.getSession();
+  return { session: data?.session ?? null, error: error ?? null };
+}
+
+/** Sign in with email + password. */
+export async function signIn(email, password) {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  return { user: data?.user ?? null, session: data?.session ?? null, error: error ?? null };
+}
+
+/** Create a new account. */
+export async function signUp(email, password) {
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  return { user: data?.user ?? null, error: error ?? null };
+}
+
+/** Sign out and clear the local session. */
+export async function signOut() {
+  const { error } = await supabase.auth.signOut();
+  return { error: error ?? null };
+}
+
+/**
+ * Subscribe to auth state changes.
+ *
+ * CRITICAL — Supabase v2 event model:
+ *   "INITIAL_SESSION"  — fires immediately after registration with the
+ *                        restored session (or null if none).
+ *   "SIGNED_IN"        — fires on explicit login.
+ *   "SIGNED_OUT"       — fires on explicit logout or session expiry.
+ *   "TOKEN_REFRESHED"  — silent renewal; no UI action needed.
+ *
+ * Returns { unsubscribe } so callers can clean up if needed.
+ */
+export function onAuthStateChange(callback) {
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    callback(event, session);
+  });
+  return { unsubscribe: () => data.subscription.unsubscribe() };
+}
+
+// ════════════════════════════════════════════════════════════════
+//  TRANSACTION HELPERS  (all scoped by user_id)
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Fetch all transactions for userId, newest first.
+ * Explicit .eq("user_id") works alongside RLS — both enforce ownership.
+ */
+export async function getTransactions(userId) {
   try {
     const { data, error } = await supabase
       .from(TABLE)
       .select("*")
+      .eq("user_id", userId)
       .order("date", { ascending: false });
-
     if (error) throw error;
     return { data, error: null };
-  } catch (error) {
-    console.error("[getTransactions]", error.message);
-    return { data: null, error };
+  } catch (err) {
+    console.error("[getTransactions]", err.message);
+    return { data: null, error: err };
   }
 }
 
-// ── addTransaction ────────────────────────────────────────────
-/**
- * Insert a new transaction row.
- * @param {string} title
- * @param {number} amount
- * @param {string} category
- * @param {"income"|"expense"} type
- * @param {string} date  — ISO date string, e.g. "2025-03-11"
- * @returns {{ data: object|null, error: object|null }}
- */
-export async function addTransaction(title, amount, category, type, date) {
+/** Insert a new transaction row stamped with the owner's user_id. */
+export async function addTransaction(userId, title, amount, category, type, date) {
   try {
     const { data, error } = await supabase
       .from(TABLE)
-      .insert([{ title, amount, category, type, date }])
+      .insert([{ user_id: userId, title, amount, category, type, date }])
       .select()
       .single();
-
     if (error) throw error;
     return { data, error: null };
-  } catch (error) {
-    console.error("[addTransaction]", error.message);
-    return { data: null, error };
+  } catch (err) {
+    console.error("[addTransaction]", err.message);
+    return { data: null, error: err };
   }
 }
 
-// ── deleteTransaction ─────────────────────────────────────────
-/**
- * Delete a transaction by id.
- * @param {string|number} id
- * @returns {{ data: object|null, error: object|null }}
- */
+/** Delete a transaction by id. RLS enforces ownership server-side. */
 export async function deleteTransaction(id) {
   try {
     const { data, error } = await supabase
@@ -73,22 +113,15 @@ export async function deleteTransaction(id) {
       .eq("id", id)
       .select()
       .single();
-
     if (error) throw error;
     return { data, error: null };
-  } catch (error) {
-    console.error("[deleteTransaction]", error.message);
-    return { data: null, error };
+  } catch (err) {
+    console.error("[deleteTransaction]", err.message);
+    return { data: null, error: err };
   }
 }
 
-// ── updateTransaction ─────────────────────────────────────────
-/**
- * Update an existing transaction by id.
- * @param {string|number} id
- * @param {{ title?: string, amount?: number, category?: string, type?: string, date?: string }} updatedData
- * @returns {{ data: object|null, error: object|null }}
- */
+/** Update a transaction by id. RLS enforces ownership server-side. */
 export async function updateTransaction(id, updatedData) {
   try {
     const { data, error } = await supabase
@@ -97,11 +130,10 @@ export async function updateTransaction(id, updatedData) {
       .eq("id", id)
       .select()
       .single();
-
     if (error) throw error;
     return { data, error: null };
-  } catch (error) {
-    console.error("[updateTransaction]", error.message);
-    return { data: null, error };
+  } catch (err) {
+    console.error("[updateTransaction]", err.message);
+    return { data: null, error: err };
   }
 }
